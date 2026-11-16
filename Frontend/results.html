@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Results — LabelSetu</title>
+    <link rel="stylesheet" href="style.css">
+<style>
+    .result-section {
+        margin-top: 24px;
+        padding-top: 18px;
+        border-top: 1px solid #ddd;
+    }
+    .result-section h3 {
+        margin-bottom: 14px;
+    }
+    .data-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 12px 0;
+        border-bottom: 1px solid #eee;
+        font-size: 14px;
+    }
+    .data-label {
+        font-weight: 600;
+        color: #555;
+        text-transform: capitalize;
+    }
+    .data-value {
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+    .ocr-text {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 400px;
+        overflow-y: auto;
+        padding: 14px;
+        background: #f5f5f8;
+        border-radius: 8px;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+    .processing-message {
+        padding: 18px;
+        margin-top: 20px;
+        background: #f3f4ff;
+        border-radius: 8px;
+    }
+    .status-badge {
+        text-transform: capitalize;
+    }
+    .empty-value {
+        color: #999;
+        font-style: italic;
+    }
+</style>
+</head>
+<body>
+<div class="blob-field">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+    <div class="blob blob-4"></div>
+</div>
+<div class="noise-overlay"></div>
+<nav class="navbar">
+    <div class="brand">LabelSetu<sup>®</sup></div>
+<div class="nav-links">
+    <a href="upload.html">Check label</a>
+    <a href="dashboard.html">Dashboard</a>
+    <button class="theme-toggle" id="themeToggleBtn">🌙 Dark</button>
+    <button class="theme-toggle" id="logoutBtn">Log out</button>
+</div>
+</nav>
+<div class="page">
+    <div class="container">
+    <p class="eyebrow">Scan result</p>
+    <div class="card" id="resultCard">
+        <div class="empty-state">Loading scan...</div>
+    </div>
+</div>
+</div>
+<script src="app.js"></script>
+<script>
+const POLL_INTERVAL = 2000;
+const MAX_ATTEMPTS = 60;
+let pollAttempts = 0;
+let pollingTimer = null;
+// Get scan ID from URL
+async function initResults() {
+    await requireAuth();
+    if (!getToken()) return;
+    const params = new URLSearchParams(window.location.search);
+    const scanId = params.get('id');
+    const card = document.getElementById('resultCard');
+    if (!scanId) {
+        showMessage('No scan ID provided. Please upload a product image again.');
+        return;
+    }
+    await fetchScan(scanId);
+}
+// Fetch scan from backend
+async function fetchScan(scanId) {
+    const card = document.getElementById('resultCard');
+    try {
+        const scan = await getScanById(scanId);
+        if (!scan) {
+            showMessage('Scan not found or you do not have permission to view it.');
+            return;
+        }
+        renderScan(scan);
+        if (scan.status === 'pending' || scan.status === 'processing') {
+            if (pollAttempts >= MAX_ATTEMPTS) {
+                showPollingTimeout();
+                return;
+            }
+            pollAttempts++;
+            pollingTimer = setTimeout(() => {
+                fetchScan(scanId);
+            }, POLL_INTERVAL);
+        } else {
+            clearTimeout(pollingTimer);
+        }
+    } catch (error) {
+        console.error('Error fetching scan:', error);
+        card.textContent = 'Unable to load scan information. Please refresh the page.';
+    }
+}
+// Render scan information
+function renderScan(scan) {
+    const card = document.getElementById('resultCard');
+    card.replaceChildren();
+    const statusMessages = {
+        pending: 'Your image has been uploaded and is waiting for processing.',
+        processing: 'OCR is currently extracting information from your product label.',
+        completed: 'OCR and data extraction completed successfully.',
+        failed: 'Processing failed. Please try uploading the image again.'
+    };
+    const status = scan.status || 'unknown';
+    // Header
+    const header = document.createElement('div');
+    header.className = 'result-header';
+    const title = document.createElement('h2');
+    title.textContent = 'Scan result';
+    const badge = document.createElement('span');
+    badge.className = 'status-badge';
+    badge.textContent = status;
+    header.append(title, badge);
+    card.appendChild(header);
+    // Metadata
+    const meta = document.createElement('div');
+    meta.className = 'result-meta';
+    const category = document.createElement('p');
+    category.textContent = 'Category: ' + (scan.category || 'Not available');
+    const date = document.createElement('p');
+    date.textContent = 'Uploaded: ' +
+        (scan.createdAt ? new Date(scan.createdAt).toLocaleString() : 'Not available');
+    meta.append(category, date);
+    card.appendChild(meta);
+    // Processing message
+    const message = document.createElement('div');
+    message.className = 'processing-message';
+    message.textContent = statusMessages[status] || 'Unknown processing status.';
+    card.appendChild(message);
+    // Parsed structured data
+    if (status === 'completed' && scan.extractedData) {
+        const section = document.createElement('div');
+        section.className = 'result-section';
+        const heading = document.createElement('h3');
+        heading.textContent = 'Extracted product information';
+        section.appendChild(heading);
+        renderData(scan.extractedData, section);
+        card.appendChild(section);
+    }
+    // Raw OCR text
+    if (scan.extractedText) {
+        const section = document.createElement('div');
+        section.className = 'result-section';
+        const heading = document.createElement('h3');
+        heading.textContent = 'Raw OCR text';
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = 'View extracted text';
+        summary.style.cursor = 'pointer';
+        summary.style.fontWeight = '600';
+        const pre = document.createElement('pre');
+        pre.className = 'ocr-text';
+        pre.textContent = scan.extractedText;
+        details.append(summary, pre);
+        section.append(heading, details);
+        card.appendChild(section);
+    }
+    // Report button
+    if (status === 'completed') {
+        const reportButton = document.createElement('button');
+        reportButton.className = 'primary';
+        reportButton.style.marginTop = '22px';
+        reportButton.textContent = 'Download report';
+        reportButton.addEventListener('click', () => {
+            window.print();
+        });
+        card.appendChild(reportButton);
+    }
+    // Retry / upload another image
+    const anotherButton = document.createElement('button');
+    anotherButton.className = 'secondary';
+    anotherButton.textContent = 'Check another label';
+    anotherButton.addEventListener('click', () => {
+        window.location.href = 'upload.html';
+    });
+    card.appendChild(anotherButton);
+}
+// Render parsed data dynamically
+function renderData(data, container, depth = 0) {
+    if (data === null || data === undefined || depth > 5) {
+        return;
+    }
+    if (typeof data !== 'object') {
+        return;
+    }
+    for (const [key, value] of Object.entries(data)) {
+        if (value === null || value === undefined || value === '') {
+            continue;
+        }
+        if (typeof value === 'object') {
+            const nestedSection = document.createElement('div');
+            nestedSection.className = 'result-section';
+            const heading = document.createElement('h4');
+            heading.textContent = formatLabel(key);
+            nestedSection.appendChild(heading);
+            if (Array.isArray(value)) {
+                value.forEach((item, index) => {
+                    const itemContainer = document.createElement('div');
+                    if (typeof item === 'object' && item !== null) {
+                        const itemHeading = document.createElement('strong');
+                        itemHeading.textContent = `Item ${index + 1}`;
+                        itemContainer.appendChild(itemHeading);
+                        renderData(item, itemContainer, depth + 1);
+                    } else {
+                        itemContainer.textContent = String(item);
+                    }
+                    nestedSection.appendChild(itemContainer);
+                });
+            } else {
+                renderData(value, nestedSection, depth + 1);
+            }
+            container.appendChild(nestedSection);
+            continue;
+        }
+        const row = document.createElement('div');
+        row.className = 'data-row';
+        const label = document.createElement('span');
+        label.className = 'data-label';
+        label.textContent = formatLabel(key);
+        const result = document.createElement('span');
+        result.className = 'data-value';
+        result.textContent = String(value);
+        row.append(label, result);
+        container.appendChild(row);
+    }
+}
+// Convert camelCase into readable labels
+function formatLabel(key) {
+    return key
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, char => char.toUpperCase());
+}
+// Display errors
+function showMessage(message) {
+    const card = document.getElementById('resultCard');
+    card.textContent = message;
+}
+// Polling timeout
+function showPollingTimeout() {
+    const message = document.createElement('p');
+    message.className = 'processing-message';
+    message.textContent =
+        'Processing is taking longer than expected. Refresh this page to check the latest status.';
+    document.getElementById('resultCard').appendChild(message);
+}
+// Start
+initResults();
+</script>
+</body>
+</html>
