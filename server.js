@@ -13,7 +13,7 @@ const PORT = process.env.PORT||3002;
 
 const cors = require('cors');
 app.use(cors({
-    origin: 'https://frontend-labelsetu.vercel.app'
+    origin: 'https://frontend-2-gilt.vercel.app'
 }));
 
 app.use(express.json());
