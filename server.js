@@ -1,5 +1,5 @@
-const authRoutes = require('./routes/authRoutes');
 require('dotenv').config();
+const authRoutes = require('./routes/authRoutes');
 const fs = require('fs/promises');
 const path = require('path');
 const mongoose = require('mongoose');
@@ -13,7 +13,7 @@ const PORT = process.env.PORT||3002;
 
 const cors = require('cors');
 app.use(cors({
-    origin: 'http://127.0.0.1:5501'
+    origin: 'https://frontend-labelsetu.vercel.app'
 }));
 
 app.use(express.json());
